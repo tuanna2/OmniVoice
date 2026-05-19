@@ -25,6 +25,7 @@ Usage:
 
 import argparse
 import logging
+import tempfile
 from typing import Any, Dict
 
 import gradio as gr
@@ -34,6 +35,7 @@ import torch
 from omnivoice import OmniVoice, OmniVoiceGenerationConfig
 from omnivoice.utils.common import get_best_device
 from omnivoice.utils.lang_map import LANG_NAMES, lang_display_name
+from omnivoice.utils.srt import build_srt_content
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +98,22 @@ _ATTR_INFO = {
     "English Accent / 英文口音": "Only effective for English speech.",
     "Chinese Dialect / 中文方言": "Only effective for Chinese speech.",
 }
+
+
+def _write_srt_file(text: str, audio: np.ndarray, sampling_rate: int) -> str:
+    """Write an SRT file and return the path."""
+    duration_s = float(audio.shape[-1]) / float(sampling_rate)
+    content = build_srt_content(text, duration_s)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".srt",
+        prefix="omnivoice_",
+        delete=False,
+        encoding="utf-8",
+    ) as f:
+        f.write(content)
+        return f.name
 
 # ---------------------------------------------------------------------------
 # Argument parser
@@ -174,7 +192,7 @@ def build_demo(
         ref_text=None,
     ):
         if not text or not text.strip():
-            return None, "Please enter the text to synthesize."
+            return None, gr.update(value=None, visible=False), "Please enter the text to synthesize."
 
         gen_config = OmniVoiceGenerationConfig(
             num_step=int(num_step or 32),
@@ -197,7 +215,7 @@ def build_demo(
 
         if mode == "clone":
             if not ref_audio:
-                return None, "Please upload a reference audio."
+                return None, gr.update(value=None, visible=False), "Please upload a reference audio."
             kw["voice_clone_prompt"] = model.create_voice_clone_prompt(
                 ref_audio=ref_audio,
                 ref_text=ref_text,
@@ -209,10 +227,15 @@ def build_demo(
         try:
             audio = model.generate(**kw)
         except Exception as e:
-            return None, f"Error: {type(e).__name__}: {e}"
+            return None, gr.update(value=None, visible=False), f"Error: {type(e).__name__}: {e}"
 
         waveform = (audio[0] * 32767).astype(np.int16)
-        return (sampling_rate, waveform), "Done."
+        srt_path = _write_srt_file(text.strip(), audio[0], sampling_rate)
+        return (
+            (sampling_rate, waveform),
+            gr.update(value=srt_path, visible=True),
+            "Done.",
+        )
 
     # Allow external wrappers (e.g. spaces.GPU for ZeroGPU Spaces)
     _gen = generate_fn if generate_fn is not None else _gen_core
@@ -352,10 +375,18 @@ by Xiaomi AI Lab Next-gen Kaldi team.
                         ) = _gen_settings()
                         vc_btn = gr.Button("Generate / 生成", variant="primary")
                     with gr.Column(scale=1):
-                        vc_audio = gr.Audio(
-                            label="Output Audio / 合成结果",
-                            type="numpy",
-                        )
+                        with gr.Row():
+                            with gr.Column(scale=5):
+                                vc_audio = gr.Audio(
+                                    label="Output Audio / 合成结果",
+                                    type="numpy",
+                                )
+                            with gr.Column(scale=1):
+                                vc_srt = gr.DownloadButton(
+                                    label="Download SRT",
+                                    value=None,
+                                    visible=False,
+                                )
                         vc_status = gr.Textbox(label="Status / 状态", lines=2)
 
                 def _clone_fn(
@@ -393,7 +424,7 @@ by Xiaomi AI Lab Next-gen Kaldi team.
                         vc_pp,
                         vc_po,
                     ],
-                    outputs=[vc_audio, vc_status],
+                    outputs=[vc_audio, vc_srt, vc_status],
                 )
 
             # ==============================================================
@@ -432,10 +463,18 @@ by Xiaomi AI Lab Next-gen Kaldi team.
                         ) = _gen_settings()
                         vd_btn = gr.Button("Generate / 生成", variant="primary")
                     with gr.Column(scale=1):
-                        vd_audio = gr.Audio(
-                            label="Output Audio / 合成结果",
-                            type="numpy",
-                        )
+                        with gr.Row():
+                            with gr.Column(scale=5):
+                                vd_audio = gr.Audio(
+                                    label="Output Audio / 合成结果",
+                                    type="numpy",
+                                )
+                            with gr.Column(scale=1):
+                                vd_srt = gr.DownloadButton(
+                                    label="Download SRT",
+                                    value=None,
+                                    visible=False,
+                                )
                         vd_status = gr.Textbox(label="Status / 状态", lines=2)
 
                 def _build_instruct(groups):
@@ -490,7 +529,7 @@ by Xiaomi AI Lab Next-gen Kaldi team.
                         vd_po,
                     ]
                     + vd_groups,
-                    outputs=[vd_audio, vd_status],
+                    outputs=[vd_audio, vd_srt, vd_status],
                 )
 
     return demo
