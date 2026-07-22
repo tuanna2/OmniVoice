@@ -33,7 +33,24 @@ OmniVoice is a state-of-the-art massively multilingual zero-shot text-to-speech 
 
 ## Installation
 
-Choose **one** of the following methods: **pip** or **uv**.
+Choose **one** of the following methods: **Conda**, **pip**, or **uv**.
+
+### Conda
+
+This repository includes a runtime environment used by Creator Toolchain's
+Agent Tool. It pins PyTorch for Apple Silicon MPS and Linux x86_64 CUDA 12.8,
+and installs OmniVoice in editable mode:
+
+```bash
+conda env create -f environment.yml
+conda activate omnivoice
+```
+
+To refresh an existing environment after an update:
+
+```bash
+conda env update -n omnivoice -f environment.yml --prune
+```
 
 ### pip
 
@@ -131,6 +148,38 @@ Try OmniVoice without coding:
 > If you have trouble connecting to HuggingFace when downloading the pre-trained models, set `export HF_ENDPOINT="https://hf-mirror.com"` before running.
 
 For full usage, see the [Python API](#python-api) and [Command-Line Tools](#command-line-tools) sections below.
+
+---
+
+## HTTP Service
+
+For applications and background jobs, start the stable FastAPI service instead
+of depending on Gradio's generated queue endpoints:
+
+```bash
+conda run -n omnivoice omnivoice-server --host 0.0.0.0 --port 8003
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8003/health
+```
+
+Generate a WAV with voice-design attributes:
+
+```bash
+curl -X POST http://127.0.0.1:8003/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Hello from OmniVoice","language":"en","gender":"female","age":"young adult","pitch":"auto"}' \
+  --output speech.wav
+```
+
+The service starts its health endpoint immediately and loads the model once in
+the background. While it is warming up, `/health` reports `status=loading` and
+speech requests return HTTP 503. Supported voice-design values are the same as
+the Python API. An `auto` gender, age, or pitch is omitted from the instruction
+so OmniVoice chooses that attribute.
 
 ---
 
@@ -274,11 +323,12 @@ audio = model.generate(text="He plays the [B EY1 S] guitar while catching a [B A
 
 ## Command-Line Tools
 
-Three CLI entry points are provided. The CLI tools support all features available in the Python API (voice cloning, voice design, auto voice, generation parameters, etc.) — all controlled via command-line arguments.
+Four CLI entry points are provided. The inference tools support all features available in the Python API (voice cloning, voice design, auto voice, generation parameters, etc.).
 
 | Command | Description | Source |
 |---|---|---|
 | `omnivoice-demo` | Interactive Gradio web demo | [omnivoice/cli/demo.py](omnivoice/cli/demo.py) |
+| `omnivoice-server` | Stable FastAPI service for application clients | [omnivoice/cli/server.py](omnivoice/cli/server.py) |
 | `omnivoice-infer` | Single-item inference | [omnivoice/cli/infer.py](omnivoice/cli/infer.py) |
 | `omnivoice-infer-batch` | Batch inference across multiple GPUs | [omnivoice/cli/infer_batch.py](omnivoice/cli/infer_batch.py) |
 

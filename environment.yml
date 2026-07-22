@@ -1,0 +1,19 @@
+name: omnivoice
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - ffmpeg>=8,<9
+  - libsndfile>=1.2
+  - pip>=25
+  - pip:
+      # Keep the PyTorch versions aligned with pyproject.toml/uv.lock.
+      # macOS wheels expose MPS; Linux x86_64 uses the CUDA 12.8 wheels.
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - "torch==2.8.0; sys_platform == 'darwin'"
+      - "torchaudio==2.8.0; sys_platform == 'darwin'"
+      - "torch==2.8.0+cu128; sys_platform == 'linux' and platform_machine == 'x86_64'"
+      - "torchaudio==2.8.0+cu128; sys_platform == 'linux' and platform_machine == 'x86_64'"
+      # Conda runs pip from this file's directory, so this installs OmniVoice
+      # itself and exposes the omnivoice-server console entry point.
+      - -e .
