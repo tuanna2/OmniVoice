@@ -175,6 +175,13 @@ curl -X POST http://127.0.0.1:8003/v1/audio/speech \
   --output speech.wav
 ```
 
+For stable chunked callers, the same endpoint also accepts `voice_key`,
+`ref_audio_base64`, and `ref_text`. All three clone fields are required
+together. The service fingerprints the reference and caches the encoded
+`VoiceClonePrompt`, so later requests with the same voice/reference reuse the
+prompt instead of re-tokenizing the WAV. Responses expose
+`X-OmniVoice-Voice-Mode: clone|design`.
+
 The service starts its health endpoint immediately and loads the model once in
 the background. While it is warming up, `/health` reports `status=loading` and
 speech requests return HTTP 503. Supported voice-design values are the same as

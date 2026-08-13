@@ -9,6 +9,9 @@ Gradio's generated function indexes or queue protocol.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
+import hashlib
 import io
 import logging
 import threading
@@ -61,6 +64,9 @@ class SpeechRequest(BaseModel):
 
     text: str = Field(min_length=1)
     language: str | None = None
+    voice_key: str | None = Field(default=None, max_length=120)
+    ref_audio_base64: str | None = Field(default=None, max_length=30_000_000)
+    ref_text: str | None = Field(default=None, max_length=10_000)
     gender: str | None = "auto"
     age: str | None = "auto"
     pitch: str | None = "auto"
@@ -143,6 +149,26 @@ def build_voice_instruct(
     return ", ".join(selected) if selected else None
 
 
+def decode_clone_reference(encoded_audio: str) -> tuple[np.ndarray, int, str]:
+    """Decode and fingerprint a source-controlled clone reference."""
+
+    try:
+        audio_bytes = base64.b64decode(encoded_audio, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise ValueError("ref_audio_base64 must contain valid base64 audio") from error
+    if len(audio_bytes) <= 44:
+        raise ValueError("ref_audio_base64 contains empty audio")
+    try:
+        waveform, sample_rate = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=True)
+    except Exception as error:  # noqa: BLE001
+        raise ValueError(f"Unable to decode clone reference audio: {error}") from error
+    if waveform.size == 0 or sample_rate <= 0:
+        raise ValueError("Clone reference audio is empty")
+    # soundfile returns (samples, channels); OmniVoice expects (channels, samples).
+    channels_first = np.asarray(waveform.T, dtype=np.float32)
+    return channels_first, int(sample_rate), hashlib.sha256(audio_bytes).hexdigest()
+
+
 def _default_model_loader(model_name: str, device: str | None) -> Any:
     # Heavy imports stay inside the loader so unit tests can inject a fake model
     # without downloading or initializing a checkpoint.
@@ -208,6 +234,7 @@ def create_app(
     app.state.model_load_error = None
     app.state.model_load_thread = None
     app.state.inference_lock = threading.Lock()
+    app.state.voice_clone_prompt_cache = {}
 
     @app.get("/health")
     def health() -> Any:
@@ -247,6 +274,31 @@ def create_app(
                 )
             raise HTTPException(status_code=503, detail="OmniVoice model is not loaded")
 
+        clone_fields = [request.voice_key, request.ref_audio_base64, request.ref_text]
+        has_clone_reference = any(value is not None and str(value).strip() for value in clone_fields)
+        clone_audio: tuple[np.ndarray, int] | None = None
+        clone_cache_key: tuple[str, str, str, bool] | None = None
+        if has_clone_reference:
+            voice_key = str(request.voice_key or "").strip()
+            ref_text = str(request.ref_text or "").strip()
+            encoded_audio = str(request.ref_audio_base64 or "").strip()
+            if not voice_key or not ref_text or not encoded_audio:
+                raise HTTPException(
+                    status_code=422,
+                    detail="voice_key, ref_audio_base64, and ref_text are all required for voice cloning",
+                )
+            try:
+                waveform, sample_rate, audio_digest = decode_clone_reference(encoded_audio)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            clone_audio = (waveform, sample_rate)
+            clone_cache_key = (
+                voice_key.casefold(),
+                audio_digest,
+                hashlib.sha256(ref_text.encode("utf-8")).hexdigest(),
+                bool(request.preprocess_prompt),
+            )
+
         generation_options: dict[str, Any] = {
             "text": normalized_text,
             "language": normalize_language(request.language),
@@ -265,6 +317,16 @@ def create_app(
 
         try:
             with app.state.inference_lock:
+                if clone_cache_key is not None and clone_audio is not None:
+                    clone_prompt = app.state.voice_clone_prompt_cache.get(clone_cache_key)
+                    if clone_prompt is None:
+                        clone_prompt = loaded_model.create_voice_clone_prompt(
+                            ref_audio=clone_audio,
+                            ref_text=str(request.ref_text).strip(),
+                            preprocess_prompt=request.preprocess_prompt,
+                        )
+                        app.state.voice_clone_prompt_cache[clone_cache_key] = clone_prompt
+                    generation_options["voice_clone_prompt"] = clone_prompt
                 generated = loaded_model.generate(**generation_options)
         except Exception as error:  # noqa: BLE001
             LOGGER.exception("OmniVoice generation failed")
@@ -290,6 +352,7 @@ def create_app(
             headers={
                 "Content-Disposition": 'attachment; filename="speech.wav"',
                 "X-OmniVoice-Sample-Rate": str(sample_rate),
+                "X-OmniVoice-Voice-Mode": "clone" if has_clone_reference else "design",
             },
         )
 

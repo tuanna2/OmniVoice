@@ -1,5 +1,7 @@
 import threading
 import time
+import base64
+import io
 
 import numpy as np
 from fastapi.testclient import TestClient
@@ -17,6 +19,11 @@ class FakeModel:
 
     def __init__(self):
         self.calls = []
+        self.clone_calls = []
+
+    def create_voice_clone_prompt(self, **kwargs):
+        self.clone_calls.append(kwargs)
+        return {"clone": len(self.clone_calls)}
 
     def generate(self, **kwargs):
         self.calls.append(kwargs)
@@ -97,6 +104,31 @@ def test_model_loader_runs_once_for_service_lifetime():
         assert client.post("/v1/audio/speech", json={"text": "hello"}).status_code == 200
 
     assert load_count == 1
+
+
+def test_clone_reference_is_cached_and_reused_by_voice_identity():
+    import soundfile as sf
+
+    reference = io.BytesIO()
+    sf.write(reference, np.zeros(2400, dtype=np.float32), 24000, format="WAV")
+    payload = {
+        "text": "Hello",
+        "language": "en",
+        "voice_key": "en-emma",
+        "ref_audio_base64": base64.b64encode(reference.getvalue()).decode("ascii"),
+        "ref_text": "Reference text.",
+    }
+    model = FakeModel()
+    app = create_app(model=model)
+    with TestClient(app) as client:
+        first = client.post("/v1/audio/speech", json=payload)
+        second = client.post("/v1/audio/speech", json={**payload, "text": "Again"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.headers["x-omnivoice-voice-mode"] == "clone"
+    assert len(model.clone_calls) == 1
+    assert model.calls[0]["voice_clone_prompt"] is model.calls[1]["voice_clone_prompt"]
 
 
 def test_health_stays_available_while_model_loads():
