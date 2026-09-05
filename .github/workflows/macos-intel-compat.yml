@@ -8,7 +8,6 @@ on:
 
 jobs:
   smoke-test:
-    # macos-15-intel is GitHub's current standard x86_64 macOS runner.
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
@@ -29,17 +28,24 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install torch==2.2.2 torchaudio==2.2.2 'numpy<2'
 
+      - name: Install Intel-safe audio dependencies
+        run: |
+          # New Numba/llvmlite releases no longer publish macOS x86_64 wheels
+          # and otherwise fall back to an LLVM source build. 0.60/0.43 still
+          # provide CPython 3.11 macOS x86_64 wheels.
+          python -m pip install --only-binary=:all: numba==0.60.0 llvmlite==0.43.0
+
       - name: Force current OmniVoice userspace on Torch 2.2.2
         run: |
           python -m pip install \
             transformers==5.3.0 \
             'accelerate>=1.1,<2' \
             pydub gradio fastapi uvicorn tensorboardX webdataset \
-            soundfile librosa
+            soundfile librosa==0.11.0
 
           # Transformers 5.3 intentionally disables its PyTorch model backend
-          # below torch 2.4. Intel macOS cannot install that floor from official
-          # wheels, so lower only the availability gate and test the real APIs.
+          # below torch 2.4 and assumes a few post-2.2 APIs. Apply narrow,
+          # version-checked shims, then test the real Qwen3/Higgs paths.
           python scripts/patch_transformers_torch22.py
 
           # Avoid pyproject.toml re-resolving torch>=2.4.
@@ -47,7 +53,7 @@ jobs:
 
       - name: Show resolved versions
         run: |
-          python -m pip freeze | grep -E '^(torch|torchaudio|transformers|accelerate|numpy)==' || true
+          python -m pip freeze | grep -E '^(torch|torchaudio|transformers|accelerate|numpy|numba|llvmlite|librosa)==' || true
 
       - name: Probe OmniVoice compatibility
         run: python scripts/check_macos_intel_compat.py
