@@ -92,6 +92,44 @@ def _patch_modeling_utils(dist) -> None:
     print(f"Patched Transformers modeling_utils for torch 2.2: {path}")
 
 
+def _patch_generic_autocast(dist) -> None:
+    path = _distribution_file(dist, "transformers/utils/generic.py")
+    text = path.read_text(encoding="utf-8")
+
+    # torch 2.2 exposes torch.is_autocast_enabled() without the device_type
+    # positional argument added later. maybe_autocast is on Qwen3's RoPE path,
+    # including when autocast is explicitly disabled for CPU inference.
+    old = "    if torch.is_autocast_enabled(device_type) or enabled:"
+    new = (
+        '    autocast_enabled = (\n'
+        '        torch.is_autocast_enabled(device_type)\n'
+        '        if importlib.metadata.version("torch").split("+", 1)[0] >= "2.4"\n'
+        '        else torch.is_autocast_enabled()\n'
+        '    )\n'
+        '    if autocast_enabled or enabled:'
+    )
+
+    # generic.py does not normally import importlib.metadata; add it once for
+    # the narrow version switch rather than monkey-patching torch globally.
+    import_anchor = "import inspect\n"
+    import_line = "import importlib.metadata\n"
+    if import_line not in text:
+        if import_anchor not in text:
+            raise SystemExit(f"Unexpected import section in {path}")
+        text = text.replace(import_anchor, import_line + import_anchor, 1)
+
+    if old in text:
+        text = text.replace(old, new, 1)
+    elif new not in text:
+        raise SystemExit(f"Unexpected maybe_autocast source in {path}")
+    else:
+        print(f"Transformers generic autocast compatibility already patched: {path}")
+        return
+
+    path.write_text(text, encoding="utf-8")
+    print(f"Patched Transformers maybe_autocast for torch 2.2: {path}")
+
+
 def main() -> None:
     version = importlib.metadata.version("transformers")
     if version != EXPECTED_TRANSFORMERS:
@@ -102,6 +140,7 @@ def main() -> None:
     dist = importlib.metadata.distribution("transformers")
     _patch_torch_availability(dist)
     _patch_modeling_utils(dist)
+    _patch_generic_autocast(dist)
 
 
 if __name__ == "__main__":
