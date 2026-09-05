@@ -11,10 +11,7 @@ dependencies:
   - pip:
       - "torch==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'"
       - "torchaudio==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'"
-      # Keep current OmniVoice model support (Qwen3 + Higgs Audio V2) and
-      # deliberately run Transformers 5.3 on the older Intel-compatible Torch.
-      # Transformers does not install torch as a hard dependency; its normal
-      # torch>=2.4 floor is used by the optional torch extra/support policy.
+      # Keep current OmniVoice model support (Qwen3 + Higgs Audio V2).
       - "transformers==5.3.0"
       - "accelerate>=1.1,<2"
       - pydub
@@ -27,10 +24,15 @@ dependencies:
       - soundfile
       - librosa
 
-# Install OmniVoice itself without re-resolving pyproject.toml's normal
-# torch>=2.4 constraint:
+# Transformers 5.3 disables its PyTorch backend for torch<2.4 even though
+# torch is not a hard install dependency. Intel macOS cannot install >=2.3
+# from official wheels, so lower only that runtime availability gate:
 #
 #   conda env create -f environment-intel.yml
 #   conda activate omnivoice-intel
+#   python scripts/patch_transformers_torch22.py
+#
+# Then install OmniVoice without re-resolving pyproject.toml's torch>=2.4:
+#
 #   python -m pip install --no-deps -e .
 #   python scripts/check_macos_intel_compat.py
