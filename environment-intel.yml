@@ -3,7 +3,7 @@ channels:
   - conda-forge
 dependencies:
   # PyTorch 2.2.2 is the last official macOS x86_64 release line.
-  # Python 3.11 has a matching macOS x86_64 wheel for torch/torchaudio 2.2.2.
+  # Python 3.11 has matching macOS x86_64 wheels for torch/torchaudio 2.2.2.
   - python=3.11
   - ffmpeg>=7,<9
   - libsndfile>=1.2
@@ -11,12 +11,12 @@ dependencies:
   - pip:
       - "torch==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'"
       - "torchaudio==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'"
-      # 4.43.x still recognizes PyTorch 2.2.x. Newer Transformers releases
-      # moved their supported PyTorch floor to 2.4.
-      # NOTE: this is intentionally experimental: OmniVoice currently also
-      # needs Qwen3 + HiggsAudioV2TokenizerModel, which landed after this line.
-      - "transformers==4.43.4"
-      - "accelerate>=0.33,<2"
+      # Keep current OmniVoice model support (Qwen3 + Higgs Audio V2) and
+      # deliberately run Transformers 5.3 on the older Intel-compatible Torch.
+      # Transformers does not install torch as a hard dependency; its normal
+      # torch>=2.4 floor is used by the optional torch extra/support policy.
+      - "transformers==5.3.0"
+      - "accelerate>=1.1,<2"
       - pydub
       - gradio
       - fastapi
@@ -27,8 +27,8 @@ dependencies:
       - soundfile
       - librosa
 
-# Install OmniVoice itself after creating this environment so pip does not
-# re-resolve pyproject.toml's normal torch>=2.4 / transformers>=5.3 constraints:
+# Install OmniVoice itself without re-resolving pyproject.toml's normal
+# torch>=2.4 constraint:
 #
 #   conda env create -f environment-intel.yml
 #   conda activate omnivoice-intel
