@@ -8,8 +8,7 @@ on:
 
 jobs:
   smoke-test:
-    # macos-13 was retired in Dec 2025. This is GitHub's current standard
-    # x86_64 runner, so the job really exercises Intel macOS.
+    # macos-15-intel is GitHub's current standard x86_64 macOS runner.
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
@@ -32,14 +31,18 @@ jobs:
 
       - name: Force current OmniVoice userspace on Torch 2.2.2
         run: |
-          # Transformers' torch floor is not a hard install dependency. Keep
-          # v5.3 so Qwen3 + HiggsAudioV2TokenizerModel remain available and
-          # probe the actual runtime compatibility against torch 2.2.2.
           python -m pip install \
             transformers==5.3.0 \
             'accelerate>=1.1,<2' \
             pydub gradio fastapi uvicorn tensorboardX webdataset \
             soundfile librosa
+
+          # Transformers 5.3 intentionally disables its PyTorch model backend
+          # below torch 2.4. Intel macOS cannot install that floor from official
+          # wheels, so lower only the availability gate and test the real APIs.
+          python scripts/patch_transformers_torch22.py
+
+          # Avoid pyproject.toml re-resolving torch>=2.4.
           python -m pip install --no-deps -e .
 
       - name: Show resolved versions
