@@ -85,6 +85,57 @@ def check_higgs():
 checks.append(check("Higgs Audio V2 tokenizer API", check_higgs))
 
 
+def check_higgs_tiny_forward():
+    # Mirrors Transformers' own Higgs tokenizer unit-test topology, but keeps
+    # every dimension small enough to run quickly on the Intel CPU runner.
+    from transformers import (
+        DacConfig,
+        HiggsAudioV2TokenizerConfig,
+        HiggsAudioV2TokenizerModel,
+        HubertConfig,
+    )
+
+    acoustic_cfg = DacConfig(
+        decoder_hidden_size=8,
+        encoder_hidden_size=8,
+        codebook_size=16,
+        downsampling_ratios=[16, 16],
+    )
+    semantic_cfg = HubertConfig(
+        hidden_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=2,
+        intermediate_size=12,
+        conv_dim=(4, 4, 4, 4, 4, 4, 4),
+    )
+    cfg = HiggsAudioV2TokenizerConfig(
+        sample_rate=16000,
+        audio_channels=1,
+        codebook_size=16,
+        acoustic_model_config=acoustic_cfg,
+        semantic_model_config=semantic_cfg,
+    )
+    model = HiggsAudioV2TokenizerModel(cfg).eval()
+    input_values = torch.zeros((1, 1, 256), dtype=torch.float32)
+
+    with torch.inference_mode():
+        encoded = model.encode(input_values)
+        if encoded.audio_codes is None or encoded.audio_codes.numel() == 0:
+            raise RuntimeError("Higgs tiny encode returned no audio codes")
+        decoded = model.decode(encoded.audio_codes)
+        if decoded.audio_values is None or decoded.audio_values.numel() == 0:
+            raise RuntimeError("Higgs tiny decode returned no audio")
+        output = model(input_values=input_values)
+
+    if output.audio_values.shape != input_values.shape:
+        raise RuntimeError(
+            f"unexpected Higgs tiny forward shape: {output.audio_values.shape} != {input_values.shape}"
+        )
+
+
+checks.append(check("Higgs tiny encode/decode/forward on Torch 2.2.2", check_higgs_tiny_forward))
+
+
 def check_omnivoice_runtime():
     from transformers import Qwen3Config
 
