@@ -11,6 +11,10 @@ dependencies:
   - pip:
       - "torch==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'"
       - "torchaudio==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'"
+      # Last convenient Numba/llvmlite pair with CPython 3.11 macOS x86_64 wheels.
+      # Newer llvmlite falls back to a local LLVM build on Intel macOS.
+      - "numba==0.60.0; sys_platform == 'darwin' and platform_machine == 'x86_64'"
+      - "llvmlite==0.43.0; sys_platform == 'darwin' and platform_machine == 'x86_64'"
       # Keep current OmniVoice model support (Qwen3 + Higgs Audio V2).
       - "transformers==5.3.0"
       - "accelerate>=1.1,<2"
@@ -22,11 +26,11 @@ dependencies:
       - webdataset
       - "numpy<2"
       - soundfile
-      - librosa
+      - "librosa==0.11.0"
 
-# Transformers 5.3 disables its PyTorch backend for torch<2.4 even though
-# torch is not a hard install dependency. Intel macOS cannot install >=2.3
-# from official wheels, so lower only that runtime availability gate:
+# Transformers 5.3 disables its PyTorch backend for torch<2.4 and assumes a
+# few post-2.2 APIs. Intel macOS cannot install >=2.3 from official wheels, so
+# apply the narrow compatibility shim after creating the environment:
 #
 #   conda env create -f environment-intel.yml
 #   conda activate omnivoice-intel
