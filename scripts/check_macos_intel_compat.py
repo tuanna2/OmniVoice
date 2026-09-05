@@ -32,14 +32,20 @@ if sys.platform != "darwin" or platform.machine() != "x86_64":
 checks = []
 
 
-def check_versions():
+def check_versions_and_backend():
     if not torch.__version__.startswith("2.2.2"):
         raise RuntimeError(f"expected torch 2.2.2, got {torch.__version__}")
     if transformers.__version__ != "5.3.0":
         raise RuntimeError(f"expected transformers 5.3.0, got {transformers.__version__}")
+    from transformers.utils.import_utils import is_torch_available
+
+    if not is_torch_available():
+        raise RuntimeError(
+            "Transformers still reports PyTorch unavailable; torch 2.2 shim was not applied"
+        )
 
 
-checks.append(check("forced Torch/Transformers versions", check_versions))
+checks.append(check("forced versions + Transformers torch backend", check_versions_and_backend))
 
 
 def check_qwen3_runtime():
