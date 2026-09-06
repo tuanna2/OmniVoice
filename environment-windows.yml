@@ -1,0 +1,8 @@
+name: omnivoice-windows
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - ffmpeg>=8,<9
+  - libsndfile>=1.2
+  - pip>=25
